@@ -2,7 +2,7 @@
  * Load llama-swap extension configuration from ~/.pi/agent/pi-llama-swap.json.
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -55,6 +55,17 @@ function normalizeRaw(raw: Partial<LlamaSwapConfig>): Partial<LlamaSwapConfig> {
 	if (typeof raw.apiKey === "string" && raw.apiKey.length > 0) {
 		out.apiKey = raw.apiKey;
 	}
+	if (raw.contextOverrides && typeof raw.contextOverrides === "object") {
+		const overrides: Record<string, number> = {};
+		for (const [model, size] of Object.entries(raw.contextOverrides)) {
+			if (typeof size === "number" && Number.isInteger(size) && size > 0) {
+				overrides[model] = size;
+			}
+		}
+		if (Object.keys(overrides).length > 0) {
+			out.contextOverrides = overrides;
+		}
+	}
 	return out;
 }
 
@@ -102,4 +113,30 @@ export async function loadConfig(): Promise<LlamaSwapConfig> {
 	}
 
 	return applyEnvOverrides(config);
+}
+
+/**
+ * Updates the context-overrides map for a model in the config file.
+ * @param model - Model id to set or clear.
+ * @param ctxSize - Context size in tokens, or undefined to remove the override.
+ */
+export async function saveContextOverride(model: string, ctxSize: number | undefined): Promise<void> {
+	const path = configPath();
+	let current: Record<string, unknown> = {};
+	try {
+		const raw = await readFile(path, "utf8");
+		current = JSON.parse(raw) as Record<string, unknown>;
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+	}
+
+	const overrides = (current.contextOverrides as Record<string, number> | undefined) ?? {};
+	if (ctxSize === undefined) {
+		delete overrides[model];
+	} else {
+		overrides[model] = ctxSize;
+	}
+
+	current.contextOverrides = overrides;
+	await writeFile(path, JSON.stringify(current, null, 2), "utf8");
 }

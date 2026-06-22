@@ -134,5 +134,6 @@ export function mergeConfig(current: LlamaSwapConfig, partial: Partial<LlamaSwap
 		port: partial.port ?? current.port,
 		basePath: partial.basePath ?? current.basePath,
 		apiKey: partial.apiKey !== undefined ? partial.apiKey : current.apiKey,
+		contextOverrides: partial.contextOverrides ?? current.contextOverrides,
 	};
 }

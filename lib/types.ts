@@ -12,6 +12,8 @@ export interface LlamaSwapConfig {
 	basePath?: string;
 	/** Optional API key sent as Bearer when set. */
 	apiKey?: string;
+	/** Per-model context window overrides (model id -> tokens). */
+	contextOverrides?: Record<string, number>;
 }
 
 /** OpenAI-compatible model entry from GET /v1/models. */

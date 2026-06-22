@@ -225,6 +225,7 @@ export async function loadContextFromRunning(
 export async function buildModelLimits(
 	entries: OpenAIModelEntry[],
 	config: LlamaSwapConfig,
+	overrides?: Record<string, number>,
 ): Promise<{ contextByModel: Map<string, number>; maxTokensByModel: Map<string, number> }> {
 	const contextByModel = new Map<string, number>();
 	const maxTokensByModel = new Map<string, number>();
@@ -244,6 +245,13 @@ export async function buildModelLimits(
 	const fromRunning = await loadContextFromRunning(serverOrigin, config.apiKey);
 	for (const [id, ctx] of fromRunning) {
 		contextByModel.set(id, ctx);
+	}
+
+	// ponyail: user overrides beat all discovered values
+	if (overrides) {
+		for (const [id, ctx] of Object.entries(overrides)) {
+			contextByModel.set(id, ctx);
+		}
 	}
 
 	return { contextByModel, maxTokensByModel };

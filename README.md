@@ -28,6 +28,12 @@ pi -e .
 
 In pi: `/model` → pick `llama-swap/your-model-id`.
 
+### Commands
+
+| Command | Args | Description |
+|---------|------|-------------|
+| `/llama-swap-set-context-length` | `<number>` or `auto` | Override context window for the current model (`auto` removes override and uses auto-detection) |
+
 Verify from CLI:
 
 ```bash
@@ -55,7 +61,10 @@ Create `~/.pi/agent/pi-llama-swap.json` to override defaults:
 {
   "origin": "http://127.0.0.1",
   "port": 8080,
-  "apiKey": "optional-key"
+  "apiKey": "optional-key",
+  "contextOverrides": {
+    "my-model": 32768
+  }
 }
 ```
 
@@ -65,60 +74,16 @@ Create `~/.pi/agent/pi-llama-swap.json` to override defaults:
 | `port` | TCP port (1–65535) |
 | `basePath` | API path prefix (default `/v1`; normalized to end with `/v1`) |
 | `apiKey` | Bearer token when llama-swap uses `apiKeys` |
+| `contextOverrides` | Per-model context overrides (model id → tokens). Use `/llama-swap-set-context-length` instead of editing manually. |
 
 Load order: **defaults → `~/.pi/agent/pi-llama-swap.json` → environment variables**.
 
 ### Context window (per model)
 
-Context size applies **only** to `llama-swap/*` models registered by this extension. Other pi providers are unchanged.
-
-Resolution runs once at extension startup (`pi -e .`) in `lib/context.ts` → `buildModelLimits()`:
-
-1. **List models** — `GET {baseUrl}/models` (OpenAI-compatible `/v1/models`)
-2. **Per model id**, set `contextWindow` using first match below
-3. **Register** models with pi via `registerProvider("llama-swap", …)`
-
-#### Resolution order (first match wins)
-
-| Priority | Source | How |
-|----------|--------|-----|
-| 1 | `GET /v1/models` entry | Top-level: `context_length`, `max_context_length`, `context_window` |
-| 2 | `GET /v1/models` metadata | `meta.llamaswap.context_length`, `.context`, `.max_context`, `.max_context_length`; or `meta.n_ctx`; or `metadata.context_length` / `metadata.context` |
-| 3 | `GET /running` (loaded models only) | For each running process: upstream llama-server `GET {proxy}/props` → `default_generation_settings.n_ctx`; else parse `-c` / `--ctx-size` from `cmd` |
-| 4 | Default | **256K** — `262144` tokens when nothing above reports a value |
-
-`/running` overrides `/v1/models` for the same model id when both exist (running value wins).
-
-#### Max output tokens (`maxTokens`)
-
-| Source | Fallback |
-|--------|----------|
-| `output_length` or `max_tokens` on `/v1/models` (or `meta.llamaswap.*`) | `min(8192, floor(contextWindow / 4))` |
-
-#### Typical behavior
-
-- **Idle models** (not loaded in llama-swap yet): usually **256K** unless llama-swap adds context fields to `/v1/models`
-- **Running model** at startup: real ctx from `/running` + upstream `/props` (e.g. `262144` from `-c` in cmd)
-- **After load**: context does not auto-refresh — restart `pi -e .` to pick up new `/running` values
-
-To expose ctx for all models without restart, configure llama-swap so `/v1/models` includes `context_length` (or `metadata.context_length`) per model.
-
-#### Example
+Context size is auto-detected from llama-swap's `/v1/models` and `/running` endpoints at startup, with a default of **256K** when nothing reports a value. User overrides set via `/llama-swap-set-context-length` take precedence over all auto-detected values.
 
 ```bash
-# See what pi registered
-pi -e . --list-models | grep llama-swap
-
-# Raw model list from llama-swap
-curl -s http://127.0.0.1:8080/v1/models | jq '.data[] | {id, context_length, meta}'
-
-# Running models + cmds (context for loaded upstream)
-curl -s http://127.0.0.1:8080/running | jq
-```
-
-Restrict permissions when storing API keys:
-
-```bash
+# Restrict permissions when storing API keys
 chmod 600 ~/.pi/agent/pi-llama-swap.json
 ```
 

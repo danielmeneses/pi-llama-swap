@@ -96,7 +96,7 @@ export async function refreshProvider(
 
 	try {
 		const entries = await fetchModels(baseUrl, config.apiKey);
-		const { contextByModel, maxTokensByModel } = await buildModelLimits(entries, config);
+		const { contextByModel, maxTokensByModel } = await buildModelLimits(entries, config, config.contextOverrides);
 		const models = mapOpenAIModelsToPi(entries, contextByModel, maxTokensByModel);
 
 		if (hasRegisteredProvider) {
