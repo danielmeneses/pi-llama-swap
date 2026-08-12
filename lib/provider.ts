@@ -41,7 +41,7 @@ export function mapOpenAIModelsToPi(
 			id: model.id,
 			name,
 			reasoning: false,
-			input: ["text"] as ("text" | "image")[],
+			input: ["text", "image"] as ("text" | "image")[],
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow,
 			maxTokens,
