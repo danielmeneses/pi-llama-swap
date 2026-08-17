@@ -12,11 +12,24 @@ import type { LlamaSwapConfig } from "./types.js";
 const CONFIG_FILENAME = "pi-llama-swap.json";
 
 /**
- * Path to the config file under `~/.pi/agent/`.
+ * Directory holding the coding-agent config.
+ * Honors `PI_CODING_AGENT_DIR` when set, else defaults to `~/.pi/agent`.
+ * @returns Absolute path to the agent directory.
+ */
+export function agentDir(): string {
+	const override = process.env.PI_CODING_AGENT_DIR?.trim();
+	if (override) {
+		return override;
+	}
+	return join(homedir(), ".pi", "agent");
+}
+
+/**
+ * Path to the config file under the agent directory.
  * @returns Absolute path to pi-llama-swap.json.
  */
 export function configPath(): string {
-	return join(homedir(), ".pi", "agent", CONFIG_FILENAME);
+	return join(agentDir(), CONFIG_FILENAME);
 }
 
 /**
