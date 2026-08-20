@@ -121,7 +121,7 @@ export function extractMaxTokensFromModelEntry(entry: OpenAIModelEntry): number 
 }
 
 /**
- * Parses `-c` or `--ctx-size` from a llama-server command string.
+ * Parses context flags from llama-server / SGLang / vLLM command strings.
  * @param cmd - Shell command (may span multiple lines).
  * @returns Context size in tokens, or undefined.
  */
@@ -134,6 +134,18 @@ export function parseContextFromCmd(cmd: string): number | undefined {
 	const cMatch = cmd.match(/(?:^|\s)-c(?:=|\s+)(\d+)/);
 	if (cMatch) {
 		return Number(cMatch[1]);
+	}
+
+	// SGLang backend: --context-length <N>
+	const sglangMatch = cmd.match(/(?:^|\s)--context-length(?:=|\s+)(\d+)/);
+	if (sglangMatch) {
+		return Number(sglangMatch[1]);
+	}
+
+	// vLLM backend: --max-model-len <N>
+	const vllmMatch = cmd.match(/(?:^|\s)--max-model-len(?:=|\s+)(\d+)/);
+	if (vllmMatch) {
+		return Number(vllmMatch[1]);
 	}
 
 	return undefined;
