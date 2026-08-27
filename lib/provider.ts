@@ -9,7 +9,18 @@ import { fetchModels, LlamaSwapClientError } from "./client.js";
 import { buildBaseUrl } from "./url.js";
 import type { LlamaSwapConfig, OpenAIModelEntry, RefreshResult } from "./types.js";
 
-export const PROVIDER_ID = "llama-swap";
+/** Default provider id used when an instance has no `name`. */
+export const DEFAULT_PROVIDER_ID = "llama-swap";
+
+/**
+ * Provider id for a config entry: `name`, or the default id.
+ * Tolerates non-string `name` from unchecked raw JSON.
+ * @param config - Connection settings (or raw entry fragment).
+ * @returns Provider id to register under.
+ */
+export function providerIdOf(config: Pick<LlamaSwapConfig, "name">): string {
+	return typeof config.name === "string" && config.name ? config.name : DEFAULT_PROVIDER_ID;
+}
 
 /**
  * Placeholder apiKey so pi lists models when llama-swap has no apiKeys.
@@ -17,8 +28,8 @@ export const PROVIDER_ID = "llama-swap";
  */
 export const NO_AUTH_API_KEY_PLACEHOLDER = "local-no-auth";
 
-/** Whether a successful provider registration has occurred this session. */
-let hasRegisteredProvider = false;
+/** Provider ids currently registered with pi this session. */
+const registeredProviderIds = new Set<string>();
 
 /**
  * Maps OpenAI model entries to pi provider model definitions.
@@ -50,21 +61,24 @@ export function mapOpenAIModelsToPi(
 }
 
 /**
- * Registers the llama-swap provider with the given models.
+ * Registers a llama-swap provider with the given models.
  * @param pi - Pi extension API.
+ * @param providerId - Provider id to register under.
  * @param config - Connection settings.
  * @param models - Model list (may be empty).
  */
 export function registerLlamaSwapProvider(
 	pi: ExtensionAPI,
+	providerId: string,
 	config: LlamaSwapConfig,
 	models: ProviderModelConfig[],
 ): void {
 	const baseUrl = buildBaseUrl(config);
 	const hasKey = Boolean(config.apiKey?.trim());
+	const displayName = providerId === DEFAULT_PROVIDER_ID ? "Llama Swap" : `Llama Swap (${providerId})`;
 
 	const providerConfig = {
-		name: "Llama Swap",
+		name: displayName,
 		baseUrl,
 		api: "openai-completions" as const,
 		models,
@@ -75,23 +89,24 @@ export function registerLlamaSwapProvider(
 				: {}),
 	};
 
-	pi.registerProvider(PROVIDER_ID, providerConfig);
-	hasRegisteredProvider = true;
+	pi.registerProvider(providerId, providerConfig);
+	registeredProviderIds.add(providerId);
 }
 
 /**
- * Fetches models, then replaces the provider only after a successful fetch.
+ * Fetches models for one instance, then replaces its provider only after a successful fetch.
  * On failure after a prior success, leaves the previous registration untouched.
  * @param pi - Pi extension API.
- * @param config - Effective connection settings.
+ * @param config - Connection settings; provider id from `name` or the default.
  * @param options - `isInitial`: first load; may register empty provider on failure.
- * @returns Refresh outcome with base URL and model count.
+ * @returns Refresh outcome with provider id, base URL, and model count.
  */
 export async function refreshProvider(
 	pi: ExtensionAPI,
 	config: LlamaSwapConfig,
 	options?: { isInitial?: boolean },
 ): Promise<RefreshResult> {
+	const providerId = providerIdOf(config);
 	const baseUrl = buildBaseUrl(config);
 
 	try {
@@ -99,20 +114,21 @@ export async function refreshProvider(
 		const { contextByModel, maxTokensByModel } = await buildModelLimits(entries, config, config.contextOverrides);
 		const models = mapOpenAIModelsToPi(entries, contextByModel, maxTokensByModel);
 
-		if (hasRegisteredProvider) {
-			pi.unregisterProvider(PROVIDER_ID);
+		if (registeredProviderIds.has(providerId)) {
+			pi.unregisterProvider(providerId);
+			registeredProviderIds.delete(providerId);
 		}
-		registerLlamaSwapProvider(pi, config, models);
+		registerLlamaSwapProvider(pi, providerId, config, models);
 
-		return { baseUrl, modelCount: models.length };
+		return { providerId, baseUrl, modelCount: models.length };
 	} catch (err) {
 		const message = err instanceof LlamaSwapClientError ? err.message : err instanceof Error ? err.message : String(err);
 
 		if (options?.isInitial) {
-			registerLlamaSwapProvider(pi, config, []);
-			return { baseUrl, modelCount: 0, error: message };
+			registerLlamaSwapProvider(pi, providerId, config, []);
+			return { providerId, baseUrl, modelCount: 0, error: message };
 		}
 
-		return { baseUrl, modelCount: 0, error: message };
+		return { providerId, baseUrl, modelCount: 0, error: message };
 	}
 }

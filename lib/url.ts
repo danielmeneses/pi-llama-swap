@@ -130,6 +130,7 @@ export function parsePortArg(arg: string): number {
  */
 export function mergeConfig(current: LlamaSwapConfig, partial: Partial<LlamaSwapConfig>): LlamaSwapConfig {
 	return {
+		name: partial.name ?? current.name,
 		origin: partial.origin ?? current.origin,
 		port: partial.port ?? current.port,
 		basePath: partial.basePath ?? current.basePath,
