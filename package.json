@@ -1,6 +1,6 @@
 {
   "name": "@danielmeneses/pi-llama-swap",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Pi extension: llama-swap provider with dynamic model discovery",
   "type": "module",
   "scripts": {

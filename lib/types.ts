@@ -4,6 +4,8 @@
 
 /** Persisted connection settings for llama-swap. */
 export interface LlamaSwapConfig {
+	/** Instance name; doubles as the provider id when set. */
+	name?: string;
 	/** Origin without path, e.g. `http://127.0.0.1`. */
 	origin: string;
 	/** TCP port (1–65535). */
@@ -31,6 +33,7 @@ export interface OpenAIModelsListResponse {
 
 /** Result of a provider refresh attempt. */
 export interface RefreshResult {
+	providerId: string;
 	baseUrl: string;
 	modelCount: number;
 	error?: string;
