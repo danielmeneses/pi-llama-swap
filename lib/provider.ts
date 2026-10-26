@@ -1,5 +1,7 @@
 /**
  * Pi provider registration and model list refresh for llama-swap.
+ * Supports the default server (provider id `llama-swap`) and any number of
+ * named servers (provider ids `llama-swap-<name>`).
  */
 
 import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
@@ -17,8 +19,18 @@ export const PROVIDER_ID = "llama-swap";
  */
 export const NO_AUTH_API_KEY_PLACEHOLDER = "local-no-auth";
 
-/** Whether a successful provider registration has occurred this session. */
-let hasRegisteredProvider = false;
+/**
+ * Pi provider id for a server. The default server keeps the legacy id;
+ * named servers get `llama-swap-<name>`.
+ * @param name - Server name from the config `servers` array (undefined for default).
+ * @returns Provider id.
+ */
+export function providerIdFor(name?: string): string {
+	return name ? `${PROVIDER_ID}-${name}` : PROVIDER_ID;
+}
+
+/** Provider ids registered this session (each tracked independently). */
+const registeredProviderIds = new Set<string>();
 
 /**
  * Maps OpenAI model entries to pi provider model definitions.
@@ -50,21 +62,24 @@ export function mapOpenAIModelsToPi(
 }
 
 /**
- * Registers the llama-swap provider with the given models.
+ * Registers one llama-swap provider with the given models.
  * @param pi - Pi extension API.
+ * @param providerId - Provider id (`llama-swap` or `llama-swap-<name>`).
  * @param config - Connection settings.
  * @param models - Model list (may be empty).
  */
 export function registerLlamaSwapProvider(
 	pi: ExtensionAPI,
+	providerId: string,
 	config: LlamaSwapConfig,
 	models: ProviderModelConfig[],
 ): void {
 	const baseUrl = buildBaseUrl(config);
 	const hasKey = Boolean(config.apiKey?.trim());
+	const displayName = "name" in config && typeof config.name === "string" && config.name ? config.name : undefined;
 
 	const providerConfig = {
-		name: "Llama Swap",
+		name: displayName ? `Llama Swap (${displayName})` : "Llama Swap",
 		baseUrl,
 		api: "openai-completions" as const,
 		models,
@@ -75,20 +90,22 @@ export function registerLlamaSwapProvider(
 				: {}),
 	};
 
-	pi.registerProvider(PROVIDER_ID, providerConfig);
-	hasRegisteredProvider = true;
+	pi.registerProvider(providerId, providerConfig);
+	registeredProviderIds.add(providerId);
 }
 
 /**
  * Fetches models, then replaces the provider only after a successful fetch.
  * On failure after a prior success, leaves the previous registration untouched.
  * @param pi - Pi extension API.
+ * @param providerId - Provider id for this server.
  * @param config - Effective connection settings.
  * @param options - `isInitial`: first load; may register empty provider on failure.
- * @returns Refresh outcome with base URL and model count.
+ * @returns Refresh outcome with provider id, base URL and model count.
  */
 export async function refreshProvider(
 	pi: ExtensionAPI,
+	providerId: string,
 	config: LlamaSwapConfig,
 	options?: { isInitial?: boolean },
 ): Promise<RefreshResult> {
@@ -99,20 +116,20 @@ export async function refreshProvider(
 		const { contextByModel, maxTokensByModel } = await buildModelLimits(entries, config, config.contextOverrides);
 		const models = mapOpenAIModelsToPi(entries, contextByModel, maxTokensByModel);
 
-		if (hasRegisteredProvider) {
-			pi.unregisterProvider(PROVIDER_ID);
+		if (registeredProviderIds.has(providerId)) {
+			pi.unregisterProvider(providerId);
 		}
-		registerLlamaSwapProvider(pi, config, models);
+		registerLlamaSwapProvider(pi, providerId, config, models);
 
-		return { baseUrl, modelCount: models.length };
+		return { providerId, baseUrl, modelCount: models.length };
 	} catch (err) {
 		const message = err instanceof LlamaSwapClientError ? err.message : err instanceof Error ? err.message : String(err);
 
 		if (options?.isInitial) {
-			registerLlamaSwapProvider(pi, config, []);
-			return { baseUrl, modelCount: 0, error: message };
+			registerLlamaSwapProvider(pi, providerId, config, []);
+			return { providerId, baseUrl, modelCount: 0, error: message };
 		}
 
-		return { baseUrl, modelCount: 0, error: message };
+		return { providerId, baseUrl, modelCount: 0, error: message };
 	}
 }
