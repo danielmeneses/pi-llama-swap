@@ -78,6 +78,53 @@ Create `~/.pi/agent/pi-llama-swap.json` to override defaults:
 
 Load order: **defaults → `~/.pi/agent/pi-llama-swap.json` → environment variables**.
 
+### Multiple llama-swap servers
+
+The top-level fields configure the **default** server (provider id `llama-swap`). Add a `servers` array to register additional llama-swap instances, each under its own provider id `llama-swap-<name>`:
+
+```json
+{
+  "origin": "http://127.0.0.1",
+  "port": 8001,
+  "contextOverrides": {
+    "model-a": 262144
+  },
+  "servers": [
+    {
+      "name": "box2",
+      "origin": "http://192.168.1.42",
+      "port": 8001
+    },
+    {
+      "name": "gpu-box",
+      "origin": "http://127.0.0.1",
+      "port": 8080,
+      "apiKey": "optional-key",
+      "contextOverrides": {
+        "model-b": 32768
+      }
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `servers[].name` | Lowercase `[a-z0-9-]`, unique, not `default`. Becomes provider id `llama-swap-<name>`. |
+| other fields | Same meaning as top-level; each server falls back to package defaults (not to the default server). |
+
+- Every server's models are discovered independently and appear side by side in `/model` (`llama-swap/...`, `llama-swap-box2/...`).
+- `contextOverrides` may be set per server; each entry has its own map.
+- `LLAMA_SWAP_URL` / `LLAMA_SWAP_PORT` / `LLAMA_SWAP_API_KEY` env vars apply to the default server only.
+- `/llama-swap-set-context-length` writes into the section of the currently selected server's provider.
+- A server that is unreachable at startup only warns; the other servers still register.
+
+```bash
+pi -e . --list-models | grep llama-swap
+# llama-swap        model-a   ...
+# llama-swap-box2   model-b   ...
+```
+
 ### Context window (per model)
 
 Context size is auto-detected from llama-swap's `/v1/models` and `/running` endpoints at startup, with a default of **256K** when nothing reports a value. User overrides set via `/llama-swap-set-context-length` take precedence over all auto-detected values.
@@ -112,6 +159,7 @@ Without a key, extension uses placeholder `local-no-auth` so models appear in `/
 | 0 models | Ensure models in llama-swap config; `curl http://127.0.0.1:8080/v1/models` |
 | Extension loads but chat fails | Confirm model id; first request may load model (slow) |
 | Config ignored | File must be `~/.pi/agent/pi-llama-swap.json`; restart pi after edits |
+| Named server missing in `/model` | Check `servers[].name` is unique, lowercase, and valid; check startup warnings |
 
 ## Project layout
 
@@ -119,14 +167,22 @@ Without a key, extension uses placeholder `local-no-auth` so models appear in `/
 pi-llama-swap/
 ├── index.ts          # Extension entry
 ├── lib/
-│   ├── config.ts     # Load ~/.pi/agent/pi-llama-swap.json
+│   ├── config.ts     # Load ~/.pi/agent/pi-llama-swap.json (default + named servers)
 │   ├── url.ts        # URL building
 │   ├── client.ts     # GET /v1/models
 │   ├── context.ts    # Context window from llama-swap APIs
-│   ├── provider.ts   # registerProvider
+│   ├── provider.ts   # registerProvider (per server)
 │   └── types.ts
+├── tests/            # node:test unit tests (npm test)
 ├── package.json
 └── README.md
+```
+
+## Development
+
+```bash
+npm run check   # tsc --noEmit
+npm test        # compile + node --test
 ```
 
 ## License

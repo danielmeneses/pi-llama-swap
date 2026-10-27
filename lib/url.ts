@@ -124,16 +124,25 @@ export function parsePortArg(arg: string): number {
 
 /**
  * Merges a partial config update into an existing config.
+ * Carries the optional server `name` through when present on either side.
  * @param current - Current settings.
  * @param partial - Fields to update.
  * @returns New config object.
  */
-export function mergeConfig(current: LlamaSwapConfig, partial: Partial<LlamaSwapConfig>): LlamaSwapConfig {
-	return {
+export function mergeConfig(
+	current: LlamaSwapConfig & { name?: string },
+	partial: Partial<LlamaSwapConfig & { name?: string }>,
+): LlamaSwapConfig & { name?: string } {
+	const merged: LlamaSwapConfig & { name?: string } = {
 		origin: partial.origin ?? current.origin,
 		port: partial.port ?? current.port,
 		basePath: partial.basePath ?? current.basePath,
 		apiKey: partial.apiKey !== undefined ? partial.apiKey : current.apiKey,
 		contextOverrides: partial.contextOverrides ?? current.contextOverrides,
 	};
+	const name = partial.name ?? current.name;
+	if (name !== undefined) {
+		merged.name = name;
+	}
+	return merged;
 }

@@ -4,7 +4,8 @@
   "description": "Pi extension: llama-swap provider with dynamic model discovery",
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "tsc --noEmit false --outDir .tsc-test && node --test .tsc-test/tests/*.test.js"
   },
   "pi": {
     "extensions": [
