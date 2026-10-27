@@ -14,9 +14,27 @@ import { dirname, join } from "node:path";
 import { defaultConfig, mergeConfig } from "./url.js";
 import type { LlamaSwapConfig, LlamaSwapFileConfig, ResolvedConfig, ServerEntry } from "./types.js";
 
-export function configFilePath(): string {
-	const home = homedir();
-	return join(home, ".pi", "agent", "pi-llama-swap.json");
+const CONFIG_FILENAME = "pi-llama-swap.json";
+
+/**
+ * Directory holding the coding-agent config.
+ * Honors `PI_CODING_AGENT_DIR` when set, else defaults to `~/.pi/agent`.
+ * @returns Absolute path to the agent directory.
+ */
+export function agentDir(): string {
+	const override = process.env.PI_CODING_AGENT_DIR?.trim();
+	if (override) {
+		return override;
+	}
+	return join(homedir(), ".pi", "agent");
+}
+
+/**
+ * Path to the config file under the agent directory.
+ * @returns Absolute path to pi-llama-swap.json.
+ */
+export function configPath(): string {
+	return join(agentDir(), CONFIG_FILENAME);
 }
 
 /** True when `name` is usable as a provider suffix (`llama-swap-<name>`). */
@@ -47,7 +65,7 @@ function normalizeServers(raw: ServerEntry[] | undefined): ServerEntry[] {
 export async function loadConfig(): Promise<ResolvedConfig> {
 	let file: Partial<LlamaSwapFileConfig> = {};
 	try {
-		const path = configFilePath();
+		const path = configPath();
 		const text = await readFile(path, "utf8");
 		file = JSON.parse(text) as Partial<LlamaSwapFileConfig>;
 	} catch {
@@ -81,7 +99,7 @@ export async function saveContextOverride(
 	contextWindow: number | undefined,
 	serverName?: string,
 ): Promise<void> {
-	const path = configFilePath();
+	const path = configPath();
 	let raw: Record<string, unknown> = {};
 	try {
 		raw = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
