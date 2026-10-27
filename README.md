@@ -5,6 +5,7 @@ Pi coding agent extension that registers a **llama-swap** provider and discovers
 ## What it does
 
 - Injects provider `llama-swap` with models from `GET /v1/models`
+- Supports multiple llama-swap instances (different hosts/ports) — see [Multiple instances](#multiple-instances)
 - Resolves per-model context from llama-swap APIs (`/v1/models`, `/running`) with 256K default — see [Context window](#context-window-per-model)
 - Uses OpenAI Chat Completions API (`openai-completions`) for streaming
 - Reads optional config from `~/.pi/agent/pi-llama-swap.json` to override defaults
@@ -50,6 +51,7 @@ curl http://127.0.0.1:8080/v1/models
 | Origin | `http://127.0.0.1` |
 | Port | `8080` |
 | Base URL | `http://127.0.0.1:8080/v1` |
+| Name | `llama-swap` |
 
 No config file needed when llama-swap runs on the defaults above.
 
@@ -75,8 +77,33 @@ Create `~/.pi/agent/pi-llama-swap.json` to override defaults:
 | `basePath` | API path prefix (default `/v1`; normalized to end with `/v1`) |
 | `apiKey` | Bearer token when llama-swap uses `apiKeys` |
 | `contextOverrides` | Per-model context overrides (model id → tokens). Use `/llama-swap-set-context-length` instead of editing manually. |
+| `name` | optional unique name to be used as the pi provider id. Defaults to "llama-swap" if none is set. |
 
 Load order: **defaults → `~/.pi/agent/pi-llama-swap.json` → environment variables**.
+
+### Multiple instances
+
+To connect more than one llama-swap instance (different ports or hosts), make the config file a **JSON array** of instance objects. Each object uses the fields above, plus an optional `name`:
+
+```json
+[
+  {
+    "origin": "http://127.0.0.1",
+    "port": 8080
+  },
+  {
+    "name": "gpu-box",
+    "origin": "http://192.168.1.50",
+    "port": 8081,
+    "apiKey": "optional-key",
+    "contextOverrides": {
+      "my-model": 32768
+    }
+  }
+]
+```
+
+Note: Each instance must be given a unique name to avoid erroring.
 
 ### Context window (per model)
 
@@ -96,6 +123,8 @@ Optional runtime overrides (highest precedence):
 | `LLAMA_SWAP_URL` | Origin URL (scheme + host, optional port/path) |
 | `LLAMA_SWAP_PORT` | Port override |
 | `LLAMA_SWAP_API_KEY` | API key override |
+
+Environment overrides apply when exactly one endpoint is configured (object form or one-element array); they are ignored for [multi-instance](#multiple-instances) configs.
 
 ## Auth
 

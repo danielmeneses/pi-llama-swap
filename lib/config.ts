@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { defaultConfig, mergeConfig, parsePortArg, parseUrlArg } from "./url.js";
+import { providerIdOf } from "./provider.js";
 import type { LlamaSwapConfig } from "./types.js";
 
 const CONFIG_FILENAME = "pi-llama-swap.json";
@@ -35,12 +36,13 @@ export function configPath(): string {
 /**
  * Reads and parses the config file if it exists.
  * @param path - File path to read.
- * @returns Parsed config or null when missing.
+ * @returns Parsed instances (single object normalized to a one-element array), or null when missing.
  */
-async function readConfigFile(path: string): Promise<Partial<LlamaSwapConfig> | null> {
+async function readConfigFile(path: string): Promise<Partial<LlamaSwapConfig>[] | null> {
 	try {
 		const raw = await readFile(path, "utf8");
-		return JSON.parse(raw) as Partial<LlamaSwapConfig>;
+		const parsed = JSON.parse(raw) as Partial<LlamaSwapConfig> | Partial<LlamaSwapConfig>[];
+		return Array.isArray(parsed) ? parsed : [parsed];
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === "ENOENT") {
 			return null;
@@ -56,6 +58,9 @@ async function readConfigFile(path: string): Promise<Partial<LlamaSwapConfig> | 
  */
 function normalizeRaw(raw: Partial<LlamaSwapConfig>): Partial<LlamaSwapConfig> {
 	const out: Partial<LlamaSwapConfig> = {};
+	if (typeof raw.name === "string" && raw.name) {
+		out.name = raw.name;
+	}
 	if (typeof raw.origin === "string" && raw.origin.trim()) {
 		out.origin = raw.origin.trim();
 	}
@@ -114,42 +119,94 @@ export function applyEnvOverrides(config: LlamaSwapConfig): LlamaSwapConfig {
 }
 
 /**
- * Loads config: defaults, optional ~/.pi/agent/pi-llama-swap.json, then env overrides.
- * @returns Effective connection settings.
+ * Loads configs: defaults, optional ~/.pi/agent/pi-llama-swap.json (object or array), then env overrides.
+ * Env overrides apply when exactly one endpoint is configured.
+ * @returns One config per configured endpoint; `name` is the provider id, defaulting to "llama-swap".
+ * @throws {Error} On non-object entries or duplicate provider ids.
  */
-export async function loadConfig(): Promise<LlamaSwapConfig> {
-	let config = defaultConfig();
+export async function loadConfigs(): Promise<LlamaSwapConfig[]> {
+	const entries = (await readConfigFile(configPath())) ?? [defaultConfig()];
 
-	const file = await readConfigFile(configPath());
-	if (file) {
-		config = mergeConfig(config, normalizeRaw(file));
+	const configs: LlamaSwapConfig[] = [];
+	const seen = new Set<string>();
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		// JSON.parse is unchecked, so guard to keep the documented startup error for malformed entries
+		if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+			throw new Error(`llama-swap config: instance ${i + 1} must be an object`);
+		}
+		const config = mergeConfig(defaultConfig(), normalizeRaw(entry));
+		const providerId = providerIdOf(config);
+		if (seen.has(providerId)) {
+			throw new Error(`llama-swap config: duplicate provider id "${providerId}"`);
+		}
+		seen.add(providerId);
+		configs.push(config);
 	}
 
-	return applyEnvOverrides(config);
+	if (configs.length === 1) {
+		configs[0] = applyEnvOverrides(configs[0]);
+	}
+
+	return configs;
 }
 
 /**
- * Updates the context-overrides map for a model in the config file.
+ * Sets or clears a model's context override on a raw config entry.
+ * @param obj - Entry object from the config file.
  * @param model - Model id to set or clear.
  * @param ctxSize - Context size in tokens, or undefined to remove the override.
  */
-export async function saveContextOverride(model: string, ctxSize: number | undefined): Promise<void> {
-	const path = configPath();
-	let current: Record<string, unknown> = {};
-	try {
-		const raw = await readFile(path, "utf8");
-		current = JSON.parse(raw) as Record<string, unknown>;
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-	}
-
-	const overrides = (current.contextOverrides as Record<string, number> | undefined) ?? {};
+function setEntryOverride(obj: Record<string, unknown>, model: string, ctxSize: number | undefined): void {
+	const overrides = (obj.contextOverrides as Record<string, number> | undefined) ?? {};
 	if (ctxSize === undefined) {
 		delete overrides[model];
 	} else {
 		overrides[model] = ctxSize;
 	}
+	obj.contextOverrides = overrides;
+}
 
-	current.contextOverrides = overrides;
+/**
+ * Updates the context-overrides map for a model in the config file.
+ * @param providerId - Provider id of the instance whose overrides to update.
+ * @param model - Model id to set or clear.
+ * @param ctxSize - Context size in tokens, or undefined to remove the override.
+ */
+export async function saveContextOverride(
+	providerId: string,
+	model: string,
+	ctxSize: number | undefined,
+): Promise<void> {
+	const path = configPath();
+	let current: unknown;
+	try {
+		const raw = await readFile(path, "utf8");
+		current = JSON.parse(raw);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+		current = {};
+	}
+
+	if (Array.isArray(current)) {
+		const entry = current.find((e) => {
+			if (typeof e !== "object" || e === null || Array.isArray(e)) {
+				return false;
+			}
+			return providerIdOf(e as Partial<LlamaSwapConfig>) === providerId;
+		});
+		if (!entry) {
+			throw new Error(`llama-swap config: no instance with provider id "${providerId}"`);
+		}
+		setEntryOverride(entry as Record<string, unknown>, model, ctxSize);
+		await writeFile(path, JSON.stringify(current, null, 2), "utf8");
+		return;
+	}
+
+	if (typeof current !== "object" || current === null) {
+		throw new Error("llama-swap config: top level must be an object or an array of instances");
+	}
+
+	setEntryOverride(current as Record<string, unknown>, model, ctxSize);
 	await writeFile(path, JSON.stringify(current, null, 2), "utf8");
 }

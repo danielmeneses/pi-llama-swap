@@ -8,26 +8,29 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { loadConfig, saveContextOverride } from "./lib/config.js";
-import { refreshProvider, PROVIDER_ID } from "./lib/provider.js";
+import { loadConfigs, saveContextOverride } from "./lib/config.js";
+import { providerIdOf, refreshProvider } from "./lib/provider.js";
 
 /**
  * Pi extension factory (async for model discovery before startup).
  * @param pi - Extension API instance.
  */
 export default async function llamaSwapExtension(pi: ExtensionAPI): Promise<void> {
-	const config = await loadConfig();
-	const result = await refreshProvider(pi, config, { isInitial: true });
+	const configs = await loadConfigs();
+	const providerIds = new Set(configs.map(providerIdOf));
+	const results = await Promise.all(configs.map((config) => refreshProvider(pi, config, { isInitial: true })));
 
-	if (result.error) {
-		console.warn(`[llama-swap] ${result.error}`);
+	for (const result of results) {
+		if (result.error) {
+			console.warn(`[llama-swap] ${result.providerId}: ${result.error}`);
+		}
 	}
 
 	pi.registerCommand("llama-swap-set-context-length", {
 		description: "Set or clear context window override for the current model",
 		handler: async (args, ctx) => {
 			const model = ctx.model;
-			if (!model || model.provider !== PROVIDER_ID) {
+			if (!model || !providerIds.has(model.provider)) {
 				ctx.ui.notify("No llama-swap model selected. Use /model first.", "warning");
 				return;
 			}
@@ -41,10 +44,10 @@ export default async function llamaSwapExtension(pi: ExtensionAPI): Promise<void
 				);
 				if (!ok) return;
 
-				await saveContextOverride(model.id, undefined);
+				await saveContextOverride(model.provider, model.id, undefined);
 				// ponyail: reload config + refresh to pick up removed override
-				const config = await loadConfig();
-				await refreshProvider(pi, config);
+				const configs = await loadConfigs();
+				await Promise.all(configs.map((config) => refreshProvider(pi, config)));
 				ctx.ui.notify(`Context override removed for ${model.id}. Now auto-detected.`);
 				return;
 			}
@@ -64,10 +67,10 @@ export default async function llamaSwapExtension(pi: ExtensionAPI): Promise<void
 			);
 			if (!ok) return;
 
-			await saveContextOverride(model.id, ctxSize);
+			await saveContextOverride(model.provider, model.id, ctxSize);
 			// ponyail: reload config + refresh to pick up new override
-			const config = await loadConfig();
-			await refreshProvider(pi, config);
+			const configs = await loadConfigs();
+			await Promise.all(configs.map((config) => refreshProvider(pi, config)));
 			ctx.ui.notify(`Context window for ${model.id} set to ${ctxSize}.`);
 		},
 	});
